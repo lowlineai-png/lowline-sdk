@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Permissions-Policy" content="microphone=()">
+    <title>Lowline Voice Agent</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            overflow: hidden;
+            background: #000;
+        }
+
+        #app {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+
+        /* Video container - hidden initially */
+        #video-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            transition: opacity 0.8s ease;
+            pointer-events: none;
+        }
+
+        #video-container.active {
+            opacity: 1;
+        }
+
+        #background-video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        /* Initial screen with button */
+        #initial-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            transition: opacity 0.5s ease;
+        }
+
+        #initial-screen.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* Connect Line Button */
+        .connect-btn {
+            position: relative;
+            padding: 16px 48px;
+            font-size: 20px;
+            font-weight: 500;
+            color: #fff;
+            background: #1a1a1a;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            overflow: hidden;
+            transition: transform 0.2s ease;
+        }
+
+        .connect-btn:hover {
+            transform: scale(1.05);
+        }
+
+        .connect-btn:active {
+            transform: scale(0.98);
+        }
+
+        .connect-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        /* Rainbow gradient border */
+        .connect-btn::before {
+            content: '';
+            position: absolute;
+            top: -2px;
+            left: -2px;
+            right: -2px;
+            bottom: -2px;
+            background: linear-gradient(
+                90deg,
+                #00f5a0,
+                #00d9f5,
+                #e100ff,
+                #ff006a,
+                #ff8c00,
+                #00f5a0
+            );
+            border-radius: 12px;
+            z-index: -1;
+            background-size: 200% 200%;
+            animation: rainbow-flow 3s linear infinite;
+        }
+
+        @keyframes rainbow-flow {
+            0% {
+                background-position: 0% 50%;
+            }
+            100% {
+                background-position: 200% 50%;
+            }
+        }
+
+        .connect-btn span {
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Status indicator */
+        #status-indicator {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 24px;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(10px);
+            border-radius: 24px;
+            color: #fff;
+            font-size: 14px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            z-index: 10;
+        }
+
+        #status-indicator.visible {
+            opacity: 1;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #00f5a0;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .status-dot.speaking {
+            background: #ff006a;
+        }
+
+        .status-dot.listening {
+            background: #00d9f5;
+        }
+
+        /* End call button */
+        #end-call-btn {
+            position: absolute;
+            top: 40px;
+            right: 40px;
+            padding: 12px 24px;
+            background: rgba(255, 0, 106, 0.2);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 0, 106, 0.5);
+            border-radius: 24px;
+            color: #fff;
+            font-size: 14px;
+            cursor: pointer;
+            opacity: 0;
+            transition: all 0.3s ease;
+            z-index: 10;
+        }
+
+        #end-call-btn.visible {
+            opacity: 1;
+        }
+
+        #end-call-btn:hover {
+            background: rgba(255, 0, 106, 0.3);
+            border-color: rgba(255, 0, 106, 0.7);
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- Initial screen with button -->
+        <div id="initial-screen">
+            <button class="connect-btn" id="start-btn">
+                <span>Connect Line</span>
+            </button>
+        </div>
+
+        <!-- Video container (hidden initially) -->
+        <div id="video-container">
+            <video id="background-video" autoplay loop muted playsinline>
+                <source src="https://res.cloudinary.com/dr1fnadjp/video/upload/v1769994484/loopvidlowline_xpucvf.mov" type="video/mp4">
+            </video>
+        </div>
+
+        <!-- Status indicator -->
+        <div id="status-indicator">
+            <div class="status-dot"></div>
+            <span id="status-text">Connecting...</span>
+        </div>
+
+        <!-- End call button -->
+        <button id="end-call-btn">End Call</button>
+    </div>
+
+    <script>
+        // DOM elements
+        const startBtn = document.getElementById('start-btn');
+        const initialScreen = document.getElementById('initial-screen');
+        const videoContainer = document.getElementById('video-container');
+        const statusIndicator = document.getElementById('status-indicator');
+        const statusText = document.getElementById('status-text');
+        const statusDot = document.querySelector('.status-dot');
+        const endCallBtn = document.getElementById('end-call-btn');
+        const backgroundVideo = document.getElementById('background-video');
+
+        // ElevenLabs configuration
+        const AGENT_ID = 'agent_1701kfxv7djqebrsm3m0fafz4x7s';
+
+        // State
+        let ws = null;
+        let audioContext = null;
+        let mediaRecorder = null;
+        let audioStream = null;
+        let isConnected = false;
+        let audioQueue = [];
+        let isPlaying = false;
+
+        // Update status indicator
+        function updateStatus(state, text) {
+            statusText.textContent = text;
+            statusDot.className = 'status-dot';
+            
+            if (state === 'speaking') {
+                statusDot.classList.add('speaking');
+            } else if (state === 'listening') {
+                statusDot.classList.add('listening');
+            }
+
+            if (state !== 'hidden') {
+                statusIndicator.classList.add('visible');
+            } else {
+                statusIndicator.classList.remove('visible');
+            }
+        }
+
+        // Initialize audio
+        async function initAudio() {
+            try {
+                // Request microphone access
+                audioStream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        sampleRate: 16000
+                    } 
+                });
+
+                // Initialize audio context
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: 24000
+                });
+
+                console.log('✅ Audio initialized');
+                return true;
+            } catch (error) {
+                console.error('❌ Failed to get microphone access:', error);
+                alert('Microphone access is required. Please enable microphone permissions and try again.');
+                return false;
+            }
+        }
+
+        // Connect to ElevenLabs WebSocket
+        function connectToAgent() {
+            return new Promise((resolve, reject) => {
+                const wsUrl = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${AGENT_ID}`;
+                console.log('🔌 Connecting to:', wsUrl);
+                
+                ws = new WebSocket(wsUrl);
+                ws.binaryType = 'arraybuffer';
+
+                ws.onopen = () => {
+                    console.log('✅ WebSocket connected');
+                    isConnected = true;
+                    resolve();
+                };
+
+                ws.onmessage = async (event) => {
+                    try {
+                        // Handle JSON messages
+                        if (typeof event.data === 'string') {
+                            const message = JSON.parse(event.data);
+                            handleAgentMessage(message);
+                        } 
+                        // Handle binary audio data
+                        else if (event.data instanceof ArrayBuffer) {
+                            await playAudio(event.data);
+                        }
+                    } catch (error) {
+                        console.error('❌ Error handling message:', error);
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    console.error('❌ WebSocket error:', error);
+                    updateStatus('error', 'Connection error');
+                    reject(error);
+                };
+
+                ws.onclose = (event) => {
+                    console.log('🔌 WebSocket closed:', event.code, event.reason);
+                    if (isConnected) {
+                        endCall();
+                    }
+                };
+            });
+        }
+
+        // Handle messages from agent
+        function handleAgentMessage(message) {
+            console.log('📨 Agent message:', message.type || message);
+
+            switch(message.type) {
+                case 'conversation_initiation_metadata':
+                    console.log('🎙️ Conversation started');
+                    updateStatus('listening', 'Listening...');
+                    startAudioCapture();
+                    break;
+                
+                case 'agent_response':
+                    console.log('🤖 Agent speaking');
+                    updateStatus('speaking', 'Speaking...');
+                    break;
+                
+                case 'agent_response_end':
+                    console.log('🎙️ Agent finished speaking');
+                    updateStatus('listening', 'Listening...');
+                    break;
+                
+                case 'user_transcript':
+                    console.log('👤 You said:', message.user_transcription);
+                    break;
+                
+                case 'audio':
+                    // Audio chunks are handled in onmessage
+                    break;
+                
+                case 'interruption':
+                    console.log('⚠️ Interruption detected');
+                    break;
+                
+                case 'ping':
+                    // Respond to ping with pong
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'pong', event_id: message.event_id }));
+                    }
+                    break;
+                
+                default:
+                    console.log('📩 Other message:', message);
+            }
+        }
+
+        // Play audio from agent
+        async function playAudio(audioData) {
+            try {
+                if (!audioContext) return;
+
+                const audioBuffer = await audioContext.decodeAudioData(audioData);
+                const source = audioContext.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(audioContext.destination);
+                source.start(0);
+                
+                console.log('🔊 Playing audio chunk');
+            } catch (error) {
+                console.error('❌ Audio playback error:', error);
+            }
+        }
+
+        // Capture and send audio to agent
+        function startAudioCapture() {
+            if (!audioStream || !ws) return;
+
+            try {
+                mediaRecorder = new MediaRecorder(audioStream, {
+                    mimeType: 'audio/webm;codecs=opus',
+                    audioBitsPerSecond: 16000
+                });
+
+                mediaRecorder.ondataavailable = async (event) => {
+                    if (event.data.size > 0 && ws && ws.readyState === WebSocket.OPEN) {
+                        // Convert blob to base64
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                            const base64Audio = reader.result.split(',')[1];
+                            
+                            // Send audio chunk to agent
+                            ws.send(JSON.stringify({
+                                type: 'user_audio_chunk',
+                                audio: base64Audio
+                            }));
+                        };
+                        reader.readAsDataURL(event.data);
+                    }
+                };
+
+                mediaRecorder.start(100); // Send chunks every 100ms
+                console.log('🎤 Started recording');
+
+            } catch (error) {
+                console.error('❌ Failed to start recording:', error);
+            }
+        }
+
+        // Start the call
+        async function startCall() {
+            try {
+                startBtn.disabled = true;
+                updateStatus('connecting', 'Requesting permissions...');
+
+                // Initialize audio
+                const audioReady = await initAudio();
+                if (!audioReady) {
+                    startBtn.disabled = false;
+                    updateStatus('hidden', '');
+                    return;
+                }
+
+                updateStatus('connecting', 'Connecting to agent...');
+
+                // Connect to ElevenLabs
+                await connectToAgent();
+
+                // Hide initial screen
+                initialScreen.classList.add('hidden');
+                
+                // Show video
+                videoContainer.classList.add('active');
+                backgroundVideo.play();
+
+                // Show end call button
+                endCallBtn.classList.add('visible');
+
+                console.log('✅ Call started successfully');
+
+            } catch (error) {
+                console.error('❌ Failed to start call:', error);
+                alert('Failed to connect. Please try again.');
+                startBtn.disabled = false;
+                updateStatus('hidden', '');
+            }
+        }
+
+        // End the call
+        function endCall() {
+            console.log('📞 Ending call');
+            isConnected = false;
+
+            // Stop media recorder
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                mediaRecorder = null;
+            }
+
+            // Stop audio stream
+            if (audioStream) {
+                audioStream.getTracks().forEach(track => track.stop());
+                audioStream = null;
+            }
+
+            // Close audio context
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+
+            // Close WebSocket
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.close();
+                ws = null;
+            }
+
+            // Reset UI
+            videoContainer.classList.remove('active');
+            initialScreen.classList.remove('hidden');
+            endCallBtn.classList.remove('visible');
+            statusIndicator.classList.remove('visible');
+            startBtn.disabled = false;
+
+            // Pause video
+            backgroundVideo.pause();
+            backgroundVideo.currentTime = 0;
+        }
+
+        // Event listeners
+        startBtn.addEventListener('click', startCall);
+        endCallBtn.addEventListener('click', endCall);
+
+        // Handle page visibility
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden && isConnected) {
+                endCall();
+            }
+        });
+
+        // Handle beforeunload
+        window.addEventListener('beforeunload', () => {
+            if (isConnected) {
+                endCall();
+            }
+        });
+
+        // Log for debugging
+        console.log('🚀 Lowline Voice Agent initialized');
+        console.log('Agent ID:', AGENT_ID);
+    </script>
+</body>
+</html>
